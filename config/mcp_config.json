@@ -1,0 +1,9 @@
+{
+  "math": {
+    "transport": "stdio",
+    "command": "python",
+    "args": [
+      "src/api/math_server.py"
+    ]
+  }
+}
