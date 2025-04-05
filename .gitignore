@@ -38,3 +38,5 @@ htmlcov/
 .cache
 coverage.xml
 *.cover
+.streamlit/secrets.toml
+assets/.DS_Store
