@@ -40,3 +40,5 @@ coverage.xml
 *.cover
 .streamlit/secrets.toml
 assets/.DS_Store
+config/mcp_config.json
+logs/
