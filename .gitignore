@@ -39,6 +39,10 @@ htmlcov/
 coverage.xml
 *.cover
 .streamlit/secrets.toml
-assets/.DS_Store
-config/mcp_config.json
+*/.DS_Store
+**/.DS_Store
+*/**/.DS_Store
 logs/
+log/
+*.log.*
+config/mcp_config.json
