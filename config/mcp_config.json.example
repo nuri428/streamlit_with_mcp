@@ -1,0 +1,23 @@
+{
+  "math": {
+    "command": "python",
+    "args": [
+      "src/api/math_server.py"
+    ]
+  },
+  "home-news-mysql": {
+    "command": "/Users/nuri/.pyenv/shims/uv",
+    "args": [
+      "--directory",
+      "/Users/nuri/dev/mcp-servers/mysql_mcp_server/src/mysql_mcp_server",
+      "run",
+      "server.py"
+    ],
+    "env": {
+      "MYSQL_HOST": "MYSQL_HOST",
+      "MYSQL_USER": "MYSQL_USER",
+      "MYSQL_PASSWORD": "MYSQL_PASSWORD",
+      "MYSQL_DATABASE": "MYSQL_DATABASE"
+    }
+  }
+}
