@@ -4,12 +4,28 @@ import traceback
 import streamlit as st
 from typing import Union
 from langchain_core.messages import HumanMessage
-from src.api.graph import graph, StdioConnection, SSEConnection
+from src.api.graph import graph
 from pathlib import Path
 import json
 import os
+import logging
+from logging.handlers import TimedRotatingFileHandler
+
+LOG_DIR = "log"
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "main.log")
+
+logger = logging.getLogger("mcp_main")
+logger.setLevel(logging.INFO)
+
+handler = TimedRotatingFileHandler(LOG_FILE, when="W0", interval=1, backupCount=4, encoding="utf-8")
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+
+if not logger.hasHandlers():
+    logger.addHandler(handler)
+
 default_mcp_config = {
-        "transport": "stdio",
         "command": "python",
         "args": [Path(__file__).parent.parent.parent / "src/api/math_server.py"]
 }
@@ -18,9 +34,22 @@ CONFIG_PATH = os.path.join(CONFIG_DIR, "mcp_config.json")
 
 json_config = json.load(open(CONFIG_PATH))
 
+def detect_transport(config: dict) -> str:
+    if "command" in config and "args" in config:
+        return "stdio"
+    elif "url" in config:
+        return "sse"
+    else:
+        raise ValueError("Unknown transport type: cannot determine from config")
+
 if "mcp_config_dict" not in st.session_state:
     st.session_state["mcp_config_dict"]={}
     for name, config in json_config.items():
+        try:
+            config["transport"] = detect_transport(config)
+        except Exception as e:
+            logger.error(f"Transport detection failed for '{name}': {e}")
+            continue
         st.session_state["mcp_config_dict"][name] = config
     if 'math' not in st.session_state["mcp_config_dict"]:
         st.session_state["mcp_config_dict"]['math'] = default_mcp_config
@@ -35,6 +64,9 @@ def display_named_mcp_config():
     if "mcp_config_dict" not in st.session_state:
         st.session_state["mcp_config_dict"] = {}
 
+    if "mcp_enabled_dict" not in st.session_state:
+        st.session_state["mcp_enabled_dict"] = {}
+
     with st.sidebar.expander("➕ 새로운 MCP 설정 추가"):
         mcp_name = st.text_input("📛 MCP 이름 (유일한 키)", key="mcp_name_input")
 
@@ -43,15 +75,17 @@ def display_named_mcp_config():
         if mode == "stdio":
             cmd = st.text_input("🛠️ 실행 명령어 (command)", key="mcp_stdio_cmd")
             args = st.text_input("📦 인자 (argument)", key="mcp_stdio_args")
+            env_input = st.text_input("🌿 환경 변수 (k=v,k2=v2 형태)", key="mcp_stdio_env")
             new_config = {
-                "transport": "stdio",
                 "command": cmd,
                 "args": args.strip().split()
             }
+            if env_input.strip():
+                env_dict = dict(pair.split("=", 1) for pair in env_input.split(",") if "=" in pair)
+                new_config["env"] = env_dict
         else:  # sse
             url = st.text_input("🌐 SSE URL", key="mcp_sse_url")
             new_config = {
-                "transport": "sse",
                 "url": url.strip()
             }
 
@@ -72,23 +106,33 @@ def display_named_mcp_config():
             if config["transport"] == "stdio":
                 st.text(f"CMD: {config['command']}")
                 st.text(f"ARG: {config['args']}")
+                if "env" in config:
+                    st.text(f"ENV: {config['env']}")
             elif config["transport"] == "sse":
                 st.text(f"URL: {config['url']}")
             elif name == "math":
-                st.text("기본 내장 도구 (삭제 불가)")
+                st.text("기본 내장 도구 (항상 활성화됨)")
+
+            # 사용 여부 체크박스 (math 제외)
+            if name == "math":
+                st.session_state["mcp_enabled_dict"][name] = True
+            else:
+                enabled = st.checkbox(f"✅ 사용", key=f"enable_{name}", value=st.session_state["mcp_enabled_dict"].get(name, True))
+                st.session_state["mcp_enabled_dict"][name] = enabled
 
             # 삭제 버튼 (math 제외)
             if name != "math":
                 if st.button(f"🗑️ 삭제 - {name}", key=f"delete_{name}"):
                     del st.session_state["mcp_config_dict"][name]
+                    if name in st.session_state["mcp_enabled_dict"]:
+                        del st.session_state["mcp_enabled_dict"][name]
                     st.experimental_rerun()
 
 def save_mcp_config_dict_to_file():
     config_dict = st.session_state.get("mcp_config_dict", {})
 
-    # ensure math 도구 포함
-    if "math" not in config_dict:
-        config_dict["math"] = {"mode": "builtin"}
+    if "math" not in config_dict and "math" in st.session_state.get("mcp_config_dict", {}):
+        config_dict["math"] = st.session_state["mcp_config_dict"]["math"]
 
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config_dict, f, indent=2, ensure_ascii=False)
@@ -126,8 +170,8 @@ class ChatProcessor:
             else:
                 return await self._process_sync(prompt)
         except Exception as e:
-            print(f"Error in process_response: {str(e)}")
-            print(traceback.format_exc())
+            logger.error(f"Error in process_response: {str(e)}")
+            logger.error(traceback.format_exc())
             return f"오류가 발생했습니다: {str(e)}"
             
     async def _process_streaming(self, prompt: str) -> str:
@@ -136,17 +180,23 @@ class ChatProcessor:
         full_response = []
         # 시스템 메시지 
         session_id = st.session_state.session_id
-        print(f"session_id: {session_id}")
+        logger.info(f"session_id: {session_id}")
+
+        enabled_mcp_config = {
+            name: config for name, config in st.session_state["mcp_config_dict"].items()
+            if st.session_state["mcp_enabled_dict"].get(name, False)
+        }
+
         async for chunk in self.graph.astream(
             {"messages": [HumanMessage(content=prompt)],
-             "mcp_config": st.session_state["mcp_config_dict"]
+             "mcp_config": enabled_mcp_config
             }, 
             {"thread_id": session_id }
         ):
-            # print(f"chunk: {chunk}")
+            # logger.info(f"chunk: {chunk}")
             last_message = chunk['chat_node']['messages'][-1]
             full_response.append(last_message.content)
-            print(last_message.content)
+            logger.info(last_message.content)
             response_container.write("".join(full_response))
 
         return "".join(full_response)
@@ -179,5 +229,3 @@ if prompt := st.chat_input():
         with st.spinner("Thinking..."):
             response = asyncio.run(processor.process_response(prompt))
             processor.add_message("assistant", response)
-
-

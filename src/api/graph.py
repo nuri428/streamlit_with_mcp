@@ -1,4 +1,6 @@
 import os
+import logging
+from logging.handlers import TimedRotatingFileHandler
 
 from copilotkit import CopilotKitState
 from copilotkit.langgraph import copilotkit_exit
@@ -21,7 +23,20 @@ This is the main entry point for the agent.
 It defines the workflow graph, state, tools, nodes and edges.
 """
 
+# Setup logging
+LOG_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "log")
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, "agent.log")
 
+logger = logging.getLogger("mcp_agent")
+logger.setLevel(logging.INFO)
+
+handler = TimedRotatingFileHandler(LOG_FILE, when="W0", interval=1, backupCount=4, encoding="utf-8")
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+
+if not logger.hasHandlers():
+    logger.addHandler(handler)
 
 # Define the connection type structures
 class StdioConnection(TypedDict):
@@ -66,23 +81,23 @@ async def chat_node(state: AgentState, config: RunnableConfig) -> Command[Litera
     # Get MCP configuration from state, or use the default config if not provided
     mcp_config = state.get("mcp_config", DEFAULT_MCP_CONFIG)
 
-    print(f"mcp_config: {mcp_config}, default: {DEFAULT_MCP_CONFIG}")
+    logger.info(f"mcp_config: {mcp_config}, default: {DEFAULT_MCP_CONFIG}")
     
     # Set up the MCP client and tools using the configuration from state
     async with MultiServerMCPClient(mcp_config) as mcp_client:
         # Get the tools
         mcp_tools = mcp_client.get_tools()
-        print(f"mcp_tools: {mcp_tools}")
+        logger.info(f"mcp_tools: {mcp_tools}")
 
         # Create the react agent
-        model = ChatOpenAI(model="gpt-4o")
+        model = ChatOpenAI(model="gpt-4o", streaming=True)
         react_agent = create_react_agent(model, mcp_tools)
 
         # Prepare messages for the react agent
         agent_input = {
             "messages": state["messages"]
         }
-        print(f"agent_input: {agent_input}")
+        logger.info(f"agent_input: {agent_input}")
 
         # Run the react agent subgraph with our input
         agent_response = await react_agent.ainvoke(agent_input)
