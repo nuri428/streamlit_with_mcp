@@ -10,6 +10,7 @@ dependencies = [
     "langchain-openai>=0.3.12",
     "langgraph-cli[inmem]>=0.1.89",
     "mcp[cli]>=1.6.0",
+    "sseclient-py>=1.8.0",
     "streamlit>=1.44.1",
     "streamlit-chat>=0.1.1",
 ]

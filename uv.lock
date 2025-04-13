@@ -1885,6 +1885,15 @@ wheels = [
 ]
 
 [[package]]
+name = "sseclient-py"
+version = "1.8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/ed/3df5ab8bb0c12f86c28d0cadb11ed1de44a92ed35ce7ff4fd5518a809325/sseclient-py-1.8.0.tar.gz", hash = "sha256:c547c5c1a7633230a38dc599a21a2dc638f9b5c297286b48b46b935c71fac3e8", size = 7791 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/58/97655efdfeb5b4eeab85b1fc5d3fa1023661246c2ab2a26ea8e47402d4f2/sseclient_py-1.8.0-py2.py3-none-any.whl", hash = "sha256:4ecca6dc0b9f963f8384e9d7fd529bf93dd7d708144c4fb5da0e0a1a926fee83", size = 8828 },
+]
+
+[[package]]
 name = "starlette"
 version = "0.46.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1947,6 +1956,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langgraph-cli", extra = ["inmem"] },
     { name = "mcp", extra = ["cli"] },
+    { name = "sseclient-py" },
     { name = "streamlit" },
     { name = "streamlit-chat" },
 ]
@@ -1958,6 +1968,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=0.3.12" },
     { name = "langgraph-cli", extras = ["inmem"], specifier = ">=0.1.89" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.6.0" },
+    { name = "sseclient-py", specifier = ">=1.8.0" },
     { name = "streamlit", specifier = ">=1.44.1" },
     { name = "streamlit-chat", specifier = ">=0.1.1" },
 ]
