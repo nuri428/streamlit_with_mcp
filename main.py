@@ -102,14 +102,16 @@ def display_named_mcp_config():
 
     # 설정 목록 보여주기
     for name, config in st.session_state["mcp_config_dict"].items():
-        with st.sidebar.expander(f"🔧 {name} ({config['transport']})"):
-            if config["transport"] == "stdio":
+        with st.sidebar.expander(f"🔧 {name}"):
+            if 'cmd' in config:
                 st.text(f"CMD: {config['command']}")
                 st.text(f"ARG: {config['args']}")
                 if "env" in config:
                     st.text(f"ENV: {config['env']}")
-            elif config["transport"] == "sse":
+            elif 'url' in config:
                 st.text(f"URL: {config['url']}")
+                if "env" in config:
+                    st.text(f"ENV: {config['env']}")
             elif name == "math":
                 st.text("기본 내장 도구 (항상 활성화됨)")
 

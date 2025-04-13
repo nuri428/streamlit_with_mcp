@@ -11,7 +11,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import create_react_agent
 from langgraph.types import Command
-from typing_extensions import Any, Dict, List, Literal, Optional, TypedDict, Union
+from typing_extensions import Dict, List, Literal, Optional, TypedDict, Union
 
 from dotenv import load_dotenv, find_dotenv
 
