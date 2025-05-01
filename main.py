@@ -2,21 +2,19 @@ import asyncio
 import uuid
 import traceback
 import streamlit as st
-from typing import Union
 from langchain_core.messages import HumanMessage
-from src.api.graph import graph
+from src.graph.react_graph import graph
 from pathlib import Path
-import json
 import os
 import logging
 from logging.handlers import TimedRotatingFileHandler
-
+from mcp_config import MCPConfigManager, default_mcp_config
 LOG_DIR = "log"
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, "main.log")
 
 logger = logging.getLogger("mcp_main")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 handler = TimedRotatingFileHandler(LOG_FILE, when="W0", interval=1, backupCount=4, encoding="utf-8")
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -25,14 +23,17 @@ handler.setFormatter(formatter)
 if not logger.hasHandlers():
     logger.addHandler(handler)
 
-default_mcp_config = {
-        "command": "python",
-        "args": [Path(__file__).parent.parent.parent / "src/api/math_server.py"]
-}
-CONFIG_DIR = "config"
-CONFIG_PATH = os.path.join(CONFIG_DIR, "mcp_config.json")
 
-json_config = json.load(open(CONFIG_PATH))
+CONFIG_DIR = Path("config")
+CONFIG_DIR.mkdir(exist_ok=True)
+CONFIG_PATH = CONFIG_DIR / "mcp_config.json"
+
+if "mcp_config_manager" not in st.session_state:
+    st.session_state["mcp_config_manager"] = MCPConfigManager(CONFIG_PATH, default_mcp_config)
+    logger.info(f"mcp_config_manager: {st.session_state['mcp_config_manager'].configs}")
+
+if "mcp_config_dict" not in st.session_state:
+    st.session_state["mcp_config_dict"] = st.session_state["mcp_config_manager"].prepare_configs()
 
 def detect_transport(config: dict) -> str:
     if "command" in config and "args" in config:
@@ -44,8 +45,9 @@ def detect_transport(config: dict) -> str:
 
 if "mcp_config_dict" not in st.session_state:
     st.session_state["mcp_config_dict"]={}
-    for name, config in json_config.items():
+    for name, config in st.session_state["mcp_config_manager"].configs.items():
         try:
+            logger.info(f"Processing config for '{name}': {config}")
             config["transport"] = detect_transport(config)
         except Exception as e:
             logger.error(f"Transport detection failed for '{name}': {e}")
@@ -60,9 +62,6 @@ st.title("LangChain React Agent")
 # Function to display chat history in the sidebar
 def display_named_mcp_config():
     st.sidebar.title("⚙️ MCP 설정 목록")
-
-    if "mcp_config_dict" not in st.session_state:
-        st.session_state["mcp_config_dict"] = {}
 
     if "mcp_enabled_dict" not in st.session_state:
         st.session_state["mcp_enabled_dict"] = {}
@@ -101,14 +100,15 @@ def display_named_mcp_config():
                 st.success(f"'{mcp_name}' 설정이 저장되었습니다!")
 
     # 설정 목록 보여주기
-    for name, config in st.session_state["mcp_config_dict"].items():
+    for name, config in list(st.session_state["mcp_config_dict"].items()):
+        logger.info(f"{name}: {config}")
         with st.sidebar.expander(f"🔧 {name}"):
-            if 'cmd' in config:
+            if 'stdio' == config['transport']:
                 st.text(f"CMD: {config['command']}")
                 st.text(f"ARG: {config['args']}")
                 if "env" in config:
                     st.text(f"ENV: {config['env']}")
-            elif 'url' in config:
+            elif 'sse' == config['transport']:
                 st.text(f"URL: {config['url']}")
                 if "env" in config:
                     st.text(f"ENV: {config['env']}")
@@ -119,7 +119,7 @@ def display_named_mcp_config():
             if name == "math":
                 st.session_state["mcp_enabled_dict"][name] = True
             else:
-                enabled = st.checkbox(f"✅ 사용", key=f"enable_{name}", value=st.session_state["mcp_enabled_dict"].get(name, True))
+                enabled = st.checkbox("✅ 사용", key=f"enable_{name}", value=st.session_state["mcp_enabled_dict"].get(name, True))
                 st.session_state["mcp_enabled_dict"][name] = enabled
 
             # 삭제 버튼 (math 제외)
@@ -128,26 +128,23 @@ def display_named_mcp_config():
                     del st.session_state["mcp_config_dict"][name]
                     if name in st.session_state["mcp_enabled_dict"]:
                         del st.session_state["mcp_enabled_dict"][name]
-                    st.experimental_rerun()
+                    st.session_state["need_rerun"] = True  # 🔁 rerun 요청만 표시
+
+if st.session_state.pop("need_rerun", False):
+    st.experimental_rerun()
 
 def save_mcp_config_dict_to_file():
-    config_dict = st.session_state.get("mcp_config_dict", {})
-
-    if "math" not in config_dict and "math" in st.session_state.get("mcp_config_dict", {}):
-        config_dict["math"] = st.session_state["mcp_config_dict"]["math"]
-
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(config_dict, f, indent=2, ensure_ascii=False)
-
+    st.session_state["mcp_config_manager"].configs = st.session_state.get("mcp_config_dict", {})
+    st.session_state["mcp_config_manager"].save()
     st.sidebar.success(f"✅ 설정이 '{CONFIG_PATH}'에 저장되었습니다.")
-    
+
 
 st.sidebar.title("MCP Tools")
 display_named_mcp_config()
 # 기존 MCP 설정 목록 및 추가 UI 그린 후에 하단에 추가
 if st.sidebar.button("💾 설정 전체 저장"):
     save_mcp_config_dict_to_file()
-    
+
 class ChatProcessor:
     def __init__(self):
         self.messages = st.session_state.messages
@@ -165,7 +162,7 @@ class ChatProcessor:
         """응답 처리를 위한 공통 함수"""
         if not prompt:
             return "검색어를 입력해주세요."
-            
+
         try:
             if streaming:
                 return await self._process_streaming(prompt)
@@ -175,7 +172,7 @@ class ChatProcessor:
             logger.error(f"Error in process_response: {str(e)}")
             logger.error(traceback.format_exc())
             return f"오류가 발생했습니다: {str(e)}"
-            
+
     async def _process_streaming(self, prompt: str) -> str:
         """스트리밍 응답 처리"""
         response_container = st.empty()
@@ -189,24 +186,48 @@ class ChatProcessor:
             if st.session_state["mcp_enabled_dict"].get(name, False)
         }
 
+        logger.info(f"enabled_mcp_config: {enabled_mcp_config}")
+
         async for chunk in self.graph.astream(
-            {"messages": [HumanMessage(content=prompt)],
-             "mcp_config": enabled_mcp_config
-            }, 
+            {
+                "messages": [HumanMessage(content=prompt)],
+                "mcp_config": enabled_mcp_config
+            },
             {"thread_id": session_id }
         ):
-            # logger.info(f"chunk: {chunk}")
-            last_message = chunk['chat_node']['messages'][-1]
-            full_response.append(last_message.content)
-            logger.info(last_message.content)
-            response_container.write("".join(full_response))
+            print(f"chunk: {chunk}")
+            logger.info(f"chunk: {chunk}")
+            if 'chat_node' in chunk:
+                last_message = chunk['chat_node']['messages'][-1]
+                full_response.append(last_message.content)
+                logger.info(last_message.content)
+                response_container.write("".join(full_response))
+            if 'plan_node' in chunk:
+                last_message = chunk['plan_node']['plan'][-1]
+                full_response.append(f'plan: {last_message}\n')
 
+                response_container.write("".join(full_response))
+            if 'execute_node' in chunk:
+                logger.info(f"execute_node: {chunk['execute_node']}")
+                last_message = chunk['execute_node']['results'][-1]['result']
+                last_message = f'{last_message}\n'
+                full_response.append(last_message)
+                response_container.write("".join(full_response))
+            if 'finalize_node' in chunk:
+                msg = chunk['finalize_node']
+                if not msg :
+                    last_message = "완료"
+                else:
+                    last_message = msg['result']
+
+                full_response.append(f'\n\nfinalize: {last_message}')
+                # logger.info(last_message.content)
+                response_container.write("".join(full_response))
         return "".join(full_response)
 
     async def _process_sync(self, prompt: str) -> str:
         """동기식 응답 처리"""
         return await self.graph.invoke({"messages": [HumanMessage(content=prompt)]})
-        # return await call_with_tool_stream(prompt).__anext__()
 
 # Streamlit 앱 초기화
 if "session_id" not in st.session_state:
