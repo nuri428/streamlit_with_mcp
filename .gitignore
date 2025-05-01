@@ -47,3 +47,4 @@ log/
 *.log.*
 config/mcp_config.json
 config/mcp_config.json
+config/mcp_config copy.json
